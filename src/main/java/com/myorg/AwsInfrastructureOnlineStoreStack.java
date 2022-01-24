@@ -6,6 +6,7 @@ import software.amazon.awscdk.RemovalPolicy;
 import software.amazon.awscdk.SecretValue;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
+import software.amazon.awscdk.services.amazonmq.CfnBroker;
 import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
@@ -28,6 +29,8 @@ import software.amazon.awscdk.services.s3.BucketProps;
 import software.amazon.awscdk.services.ssm.StringParameter;
 import software.constructs.Construct;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class AwsInfrastructureOnlineStoreStack extends Stack {
@@ -57,6 +60,12 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .description("The tag of image")
                 .defaultValue("latest")
                 .build();
+
+        CfnParameter rabbitmqNameUser = CfnParameter.Builder.create(this, "rabbitmq")
+                .description("The tag of image")
+                .defaultValue("rabbitmq")
+                .build();
+
 
         String dbAdminPass = StringParameter.valueForStringParameter(
                 this, "admin-pass");
@@ -106,6 +115,24 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .desiredCapacity(1)
                 .build());
 
+        List<User> rabbitUserList = new ArrayList<>();
+        rabbitUserList.add(new User(
+                rabbitmqNameUser.getValueAsString(),
+                rabbitPass
+        ));
+
+        CfnBroker rabbitMq = CfnBroker.Builder.create(this, "rabbitmq")
+                .brokerName("rabbitmq")
+                .deploymentMode("SINGLE_INSTANCE")
+                .engineType("RABBITMQ")
+                .engineVersion("3.8.26")
+                .hostInstanceType("mq.t3.micro")
+                .authenticationStrategy("SIMPLE")
+                .publiclyAccessible(false)
+                .autoMinorVersionUpgrade(true)
+                .users(rabbitUserList)
+                .build();
+
         ApplicationLoadBalancedEc2Service.Builder.create(this, "adminService")
                 .cluster(adminCluster)
                 .publicLoadBalancer(true)
@@ -123,8 +150,8 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                         "S3_AWS_REGION", getRegion(),
                                         "S3_AWS_NAME_BUCKET", bucket.getBucketName(),
                                         "S3_AWS_ENDPOINT", bucket.getBucketWebsiteUrl(),
-                                        "RABBITMQ_HOST", "test",
-                                        "RABBITMQ_USER", "test",
+                                        "RABBITMQ_HOST", rabbitMq.getAttrAmqpEndpoints().get(0),
+                                        "RABBITMQ_USER", rabbitmqNameUser.getValueAsString(),
                                         "ADMIN_PASS", dbAdminPass,
                                         "RABBITMQ_PASS", rabbitPass
                                 ))
@@ -137,5 +164,36 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                 .build()
                 )
                 .build();
+    }
+
+    static class User {
+
+        String username;
+
+        String password;
+
+        public User() {
+        }
+
+        public User(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
     }
 }
