@@ -19,6 +19,7 @@ import software.amazon.awscdk.services.ec2.SubnetSelection;
 import software.amazon.awscdk.services.ec2.SubnetType;
 import software.amazon.awscdk.services.ec2.Vpc;
 import software.amazon.awscdk.services.ecr.Repository;
+import software.amazon.awscdk.services.ecs.AddCapacityOptions;
 import software.amazon.awscdk.services.ecs.AsgCapacityProvider;
 import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.ecs.ContainerImage;
@@ -136,42 +137,24 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .users(rabbitUserList)
                 .build();
 
-        Cluster adminCluster = Cluster.Builder.create(this, "ECS-ADMIN-ONLINE-STORE")
-                .vpc(vpc).build();
-
-
-        AutoScalingGroup adminAutoScalingGroup = new AutoScalingGroup(this, "admin-auto-scalling-group",
-                AutoScalingGroupProps.builder()
-                        .allowAllOutbound(true)
-                        .desiredCapacity(1)
-                        .maxCapacity(1)
-                        .vpc(vpc)
-                        .machineImage(new AmazonLinuxImage())
-                        .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
-                        .build());
-
-//        AddCapacityOptions adminCapacityOptions = AddCapacityOptions.builder()
-//                .allowAllOutbound(true)
-//                .canContainersAccessInstanceRole(true)
-//                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
-//                .desiredCapacity(1)
-//                .build();
-
-        adminCluster.addAsgCapacityProvider(
-                AsgCapacityProvider.Builder.create(this, "capacity-provider")
-                        .capacityProviderName("AdminCapacityProvider")
-                        .machineImageType(MachineImageType.AMAZON_LINUX_2)
-                        .autoScalingGroup(adminAutoScalingGroup)
-                        .build()
-        );
-
+        Cluster adminCluster = Cluster.Builder.create(this, "ecs-admin-online-store")
+                .vpc(vpc)
+                .build();
+        AddCapacityOptions addCapacityOptions = AddCapacityOptions.builder()
+                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
+                .vpcSubnets(SubnetSelection.builder()
+                        .subnets(vpc.getPublicSubnets())
+                        .build())
+                .desiredCapacity(1)
+                .build();
+        adminCluster.addCapacity("cluster-capacity", addCapacityOptions);
 
         ApplicationLoadBalancedEc2Service adminService = ApplicationLoadBalancedEc2Service.Builder.create(this, "adminService")
                 .cluster(adminCluster)
                 .publicLoadBalancer(true)
                 .desiredCount(1)
                 .cpu(512)
-                .memoryLimitMiB(256)
+                .memoryLimitMiB(512)
                 .taskImageOptions(
                         ApplicationLoadBalancedTaskImageOptions.builder()
                                 .containerName("admin-service")
@@ -198,7 +181,6 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 )
                 .build();
 
-        adminAutoScalingGroup.getConnections().allowFrom(adminService.getLoadBalancer(), Port.tcpRange(32768, 65535), "Allow from load balancer");
     }
 
 
