@@ -11,7 +11,7 @@ public class AwsInfrastructureOnlineStoreApp {
 
         new AwsInfrastructureOnlineStoreStack(app, "AwsInfrastructureOnlineStoreStack",
                 StackProps.builder()
-                        .description("Online-store-infrastructure")
+                        .description("Online-store-infrastructure-admin-service")
                         .build());
 
         app.synth();

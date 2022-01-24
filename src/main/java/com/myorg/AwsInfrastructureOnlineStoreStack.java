@@ -2,19 +2,27 @@ package com.myorg;
 
 import software.amazon.awscdk.CfnParameter;
 import software.amazon.awscdk.Duration;
+import software.amazon.awscdk.Fn;
 import software.amazon.awscdk.RemovalPolicy;
 import software.amazon.awscdk.SecretValue;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.services.amazonmq.CfnBroker;
+import software.amazon.awscdk.services.autoscaling.AutoScalingGroup;
+import software.amazon.awscdk.services.autoscaling.AutoScalingGroupProps;
+import software.amazon.awscdk.services.ec2.AmazonLinuxImage;
 import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
+import software.amazon.awscdk.services.ec2.Port;
+import software.amazon.awscdk.services.ec2.SubnetSelection;
+import software.amazon.awscdk.services.ec2.SubnetType;
 import software.amazon.awscdk.services.ec2.Vpc;
 import software.amazon.awscdk.services.ecr.Repository;
-import software.amazon.awscdk.services.ecs.AddCapacityOptions;
+import software.amazon.awscdk.services.ecs.AsgCapacityProvider;
 import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.ecs.ContainerImage;
+import software.amazon.awscdk.services.ecs.MachineImageType;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedEc2Service;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedTaskImageOptions;
 import software.amazon.awscdk.services.iam.Role;
@@ -61,7 +69,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .defaultValue("latest")
                 .build();
 
-        CfnParameter rabbitmqNameUser = CfnParameter.Builder.create(this, "rabbitmq")
+        CfnParameter rabbitmqNameUser = CfnParameter.Builder.create(this, "rabbitmq-user")
                 .description("The tag of image")
                 .defaultValue("rabbitmq")
                 .build();
@@ -76,6 +84,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
 
         Vpc vpc = Vpc.Builder.create(this, "vpcStack")
                 .maxAzs(2)
+                .subnetConfiguration(Vpc.DEFAULT_SUBNETS_NO_NAT)
                 .build();
 
         Bucket bucket = new Bucket(this, "imageProductsBucket", BucketProps.builder()
@@ -92,6 +101,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
 
         DatabaseInstance postgres = DatabaseInstance.Builder.create(this, "postgres-admin")
                 .vpc(vpc)
+                .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PRIVATE_ISOLATED).build())
                 .engine(
                         DatabaseInstanceEngine.postgres(
                                 PostgresInstanceEngineProps.builder()
@@ -107,13 +117,6 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .build();
 
         postgres.grantConnect(taskRole);
-
-        Cluster adminCluster = Cluster.Builder.create(this, "ECS-ADMIN-ONLINE-STORE")
-                .vpc(vpc).build();
-        adminCluster.addCapacity("AdminAutoScalingGroup", AddCapacityOptions.builder()
-                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
-                .desiredCapacity(1)
-                .build());
 
         List<User> rabbitUserList = new ArrayList<>();
         rabbitUserList.add(new User(
@@ -133,12 +136,42 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .users(rabbitUserList)
                 .build();
 
-        ApplicationLoadBalancedEc2Service.Builder.create(this, "adminService")
+        Cluster adminCluster = Cluster.Builder.create(this, "ECS-ADMIN-ONLINE-STORE")
+                .vpc(vpc).build();
+
+
+        AutoScalingGroup adminAutoScalingGroup = new AutoScalingGroup(this, "admin-auto-scalling-group",
+                AutoScalingGroupProps.builder()
+                        .allowAllOutbound(true)
+                        .desiredCapacity(1)
+                        .maxCapacity(1)
+                        .vpc(vpc)
+                        .machineImage(new AmazonLinuxImage())
+                        .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
+                        .build());
+
+//        AddCapacityOptions adminCapacityOptions = AddCapacityOptions.builder()
+//                .allowAllOutbound(true)
+//                .canContainersAccessInstanceRole(true)
+//                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
+//                .desiredCapacity(1)
+//                .build();
+
+        adminCluster.addAsgCapacityProvider(
+                AsgCapacityProvider.Builder.create(this, "capacity-provider")
+                        .capacityProviderName("AdminCapacityProvider")
+                        .machineImageType(MachineImageType.AMAZON_LINUX_2)
+                        .autoScalingGroup(adminAutoScalingGroup)
+                        .build()
+        );
+
+
+        ApplicationLoadBalancedEc2Service adminService = ApplicationLoadBalancedEc2Service.Builder.create(this, "adminService")
                 .cluster(adminCluster)
                 .publicLoadBalancer(true)
                 .desiredCount(1)
                 .cpu(512)
-                .memoryLimitMiB(1024)
+                .memoryLimitMiB(256)
                 .taskImageOptions(
                         ApplicationLoadBalancedTaskImageOptions.builder()
                                 .containerName("admin-service")
@@ -150,7 +183,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                         "S3_AWS_REGION", getRegion(),
                                         "S3_AWS_NAME_BUCKET", bucket.getBucketName(),
                                         "S3_AWS_ENDPOINT", bucket.getBucketWebsiteUrl(),
-                                        "RABBITMQ_HOST", rabbitMq.getAttrAmqpEndpoints().get(0),
+                                        "RABBITMQ_HOST", Fn.select(0, rabbitMq.getAttrAmqpEndpoints()),
                                         "RABBITMQ_USER", rabbitmqNameUser.getValueAsString(),
                                         "ADMIN_PASS", dbAdminPass,
                                         "RABBITMQ_PASS", rabbitPass
@@ -164,7 +197,10 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                 .build()
                 )
                 .build();
+
+        adminAutoScalingGroup.getConnections().allowFrom(adminService.getLoadBalancer(), Port.tcpRange(32768, 65535), "Allow from load balancer");
     }
+
 
     static class User {
 
