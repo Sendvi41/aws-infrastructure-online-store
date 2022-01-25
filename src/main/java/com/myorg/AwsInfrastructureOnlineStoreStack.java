@@ -8,9 +8,6 @@ import software.amazon.awscdk.SecretValue;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.services.amazonmq.CfnBroker;
-import software.amazon.awscdk.services.autoscaling.AutoScalingGroup;
-import software.amazon.awscdk.services.autoscaling.AutoScalingGroupProps;
-import software.amazon.awscdk.services.ec2.AmazonLinuxImage;
 import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
@@ -20,10 +17,8 @@ import software.amazon.awscdk.services.ec2.SubnetType;
 import software.amazon.awscdk.services.ec2.Vpc;
 import software.amazon.awscdk.services.ecr.Repository;
 import software.amazon.awscdk.services.ecs.AddCapacityOptions;
-import software.amazon.awscdk.services.ecs.AsgCapacityProvider;
 import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.ecs.ContainerImage;
-import software.amazon.awscdk.services.ecs.MachineImageType;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedEc2Service;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedTaskImageOptions;
 import software.amazon.awscdk.services.iam.Role;
@@ -117,6 +112,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .removalPolicy(RemovalPolicy.DESTROY)
                 .build();
 
+        postgres.getConnections().allowFromAnyIpv4(Port.tcp(5432), "Allow connections to the database");
         postgres.grantConnect(taskRole);
 
         List<User> rabbitUserList = new ArrayList<>();
@@ -154,7 +150,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .publicLoadBalancer(true)
                 .desiredCount(1)
                 .cpu(512)
-                .memoryLimitMiB(512)
+                .memoryLimitMiB(400)
                 .taskImageOptions(
                         ApplicationLoadBalancedTaskImageOptions.builder()
                                 .containerName("admin-service")
@@ -165,7 +161,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                                 + ":" + postgres.getDbInstanceEndpointPort() + "/" + adminPostgresDbName.getValueAsString(),
                                         "S3_AWS_REGION", getRegion(),
                                         "S3_AWS_NAME_BUCKET", bucket.getBucketName(),
-                                        "S3_AWS_ENDPOINT", bucket.getBucketWebsiteUrl(),
+                                        "S3_AWS_ENDPOINT", "s3.eu-central-1.amazonaws.com",
                                         "RABBITMQ_HOST", Fn.select(0, rabbitMq.getAttrAmqpEndpoints()),
                                         "RABBITMQ_USER", rabbitmqNameUser.getValueAsString(),
                                         "ADMIN_PASS", dbAdminPass,
