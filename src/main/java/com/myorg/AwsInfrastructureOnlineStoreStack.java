@@ -31,6 +31,7 @@ import software.amazon.awscdk.services.rds.PostgresInstanceEngineProps;
 import software.amazon.awscdk.services.s3.Bucket;
 import software.amazon.awscdk.services.s3.BucketProps;
 import software.amazon.awscdk.services.ssm.StringParameter;
+import software.amazon.awscdk.services.ssm.StringParameterProps;
 import software.constructs.Construct;
 
 import java.util.ArrayList;
@@ -177,7 +178,11 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                 .build()
                 )
                 .build();
-
+        new StringParameter(this, "general-rabbitmq-host",
+                StringParameterProps.builder()
+                        .parameterName("general-rabbitmq-host")
+                        .stringValue(Fn.select(0, rabbitMq.getAttrAmqpEndpoints()))
+                        .build());
     }
 
 
