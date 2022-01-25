@@ -149,6 +149,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .cluster(adminCluster)
                 .publicLoadBalancer(true)
                 .desiredCount(1)
+                .healthCheckGracePeriod(Duration.hours(4))
                 .cpu(512)
                 .memoryLimitMiB(400)
                 .taskImageOptions(
