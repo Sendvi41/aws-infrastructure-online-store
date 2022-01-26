@@ -6,6 +6,7 @@ import software.amazon.awscdk.RemovalPolicy;
 import software.amazon.awscdk.SecretValue;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
+import software.amazon.awscdk.services.ec2.EbsDeviceVolumeType;
 import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
@@ -24,6 +25,7 @@ import software.amazon.awscdk.services.iam.ServicePrincipal;
 import software.amazon.awscdk.services.opensearchservice.CapacityConfig;
 import software.amazon.awscdk.services.opensearchservice.Domain;
 import software.amazon.awscdk.services.opensearchservice.DomainProps;
+import software.amazon.awscdk.services.opensearchservice.EbsOptions;
 import software.amazon.awscdk.services.opensearchservice.EngineVersion;
 import software.amazon.awscdk.services.opensearchservice.ZoneAwarenessConfig;
 import software.amazon.awscdk.services.rds.Credentials;
@@ -108,25 +110,27 @@ public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
         postgres.grantConnect(taskRole);
 
 
-        DomainProps domainProps = DomainProps.builder()
-                .version(EngineVersion.openSearch("OPENSEARCH_1_1"))
-                .removalPolicy(RemovalPolicy.DESTROY)
-                .vpc(vpc)
-                // must be enabled since our VPC contains multiple private subnets.
-                .zoneAwareness(ZoneAwarenessConfig.builder()
-                        .enabled(true)
-                        .build())
-                .capacity(CapacityConfig.builder()
-                        // must be an even number since the default az count is 2.
-                        .dataNodeInstanceType("t2.small.search")
-                        .masterNodeInstanceType("t2.small.search")
-                        .dataNodes(1)
-                        .masterNodes(1)
-                        .build())
-                .build();
+//        DomainProps domainProps = DomainProps.builder()
+//                .version(EngineVersion.OPENSEARCH_1_0)
+//                .removalPolicy(RemovalPolicy.DESTROY)
+//                .vpc(vpc)
+//                .zoneAwareness(ZoneAwarenessConfig.builder()
+//                        .enabled(true)
+//                        .build())
+//                .ebs(EbsOptions.builder()
+//                        .volumeSize(10)
+//                        .volumeType(EbsDeviceVolumeType.GP2)
+//                        .build())
+//                .capacity(CapacityConfig.builder()
+//                        // must be an even number since the default az count is 2.
+//                        .dataNodeInstanceType("t2.small.search")
+//                        .dataNodes(1)
+//                        .build())
+//                .build();
+//
+//        Domain elastic = new Domain(this, "Elastic", domainProps);
+//        elastic.getConnections().allowFromAnyIpv4(Port.tcp(443));
 
-        Domain elastic = new Domain(this, "Elastic", domainProps);
-        elastic.getConnections().allowFromAnyIpv4(Port.tcp(443));
 
         Cluster customerCluster = Cluster.Builder.create(this, "ecs-customer-online-store")
                 .vpc(vpc)
@@ -153,9 +157,9 @@ public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
                                 .taskRole(taskRole)
                                 .environment(Map.of(
                                         "CUSTOMER_USER", customerPostgresUserName.getValueAsString(),
-                                        "CUSTOMER_DB_URL", "jdbc:postgresql://" + postgres.getDbInstanceEndpointAddress()
-                                                + ":" + postgres.getDbInstanceEndpointPort() + "/" + customerPostgresDbName.getValueAsString(),
-                                        "CUSTOMER_ELASTIC_HOST", elastic.getDomainEndpoint(),
+                                        "CUSTOMER_DB_URL", "jdbc:postgresql://" + postgres.getDbInstanceEndpointAddress() + ":" + "5432"
+                                                + "/" + customerPostgresDbName.getValueAsString(),
+//                                        "CUSTOMER_ELASTIC_HOST", elastic.getDomainEndpoint(),
                                         "CUSTOMER_ELASTIC_PORT", "443",
                                         "RABBITMQ_HOST", rabbitEndpoint,
                                         "RABBITMQ_USER", rabbitmqNameUser.getValueAsString(),
