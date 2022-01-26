@@ -146,6 +146,12 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .build();
         adminCluster.addCapacity("cluster-capacity", addCapacityOptions);
 
+        StringParameter hostRabbit = new StringParameter(this, "general-rabbitmq-host",
+                StringParameterProps.builder()
+                        .parameterName("general-rabbitmq-host")
+                        .stringValue(Fn.select(0, rabbitMq.getAttrAmqpEndpoints()))
+                        .build());
+
         ApplicationLoadBalancedEc2Service adminService = ApplicationLoadBalancedEc2Service.Builder.create(this, "adminService")
                 .cluster(adminCluster)
                 .publicLoadBalancer(true)
@@ -159,8 +165,8 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                 .taskRole(taskRole)
                                 .environment(Map.of(
                                         "ADMIN_USER", adminPostgresUserName.getValueAsString(),
-                                        "ADMIN_DB_URL", "jdbc:postgresql://" + postgres.getDbInstanceEndpointAddress()
-                                                + ":" + postgres.getDbInstanceEndpointPort() + "/" + adminPostgresDbName.getValueAsString(),
+                                        "ADMIN_DB_URL", "jdbc:postgresql://" + postgres.getDbInstanceEndpointAddress() + ":" + "5432" +
+                                                "/" + adminPostgresDbName.getValueAsString(),
                                         "S3_AWS_REGION", getRegion(),
                                         "S3_AWS_NAME_BUCKET", bucket.getBucketName(),
                                         "S3_AWS_ENDPOINT", "s3.eu-central-1.amazonaws.com",
@@ -178,11 +184,6 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                                 .build()
                 )
                 .build();
-        new StringParameter(this, "general-rabbitmq-host",
-                StringParameterProps.builder()
-                        .parameterName("general-rabbitmq-host")
-                        .stringValue(Fn.select(0, rabbitMq.getAttrAmqpEndpoints()))
-                        .build());
     }
 
 

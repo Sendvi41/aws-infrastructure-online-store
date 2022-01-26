@@ -8,7 +8,7 @@ public class AwsInfrastructureOnlineStoreApp {
     public static void main(final String[] args) {
         App app = new App();
 
-        new AwsInfrastructureOnlineStoreStack(app, "AwsInfrastructureOnlineStoreStack",
+        new AwsInfrastructureOnlineStoreStack(app, "admin-stack",
                 StackProps.builder()
                         .description("Online-store-infrastructure-admin-service")
                         .build());
