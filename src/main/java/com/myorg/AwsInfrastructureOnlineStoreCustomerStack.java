@@ -6,7 +6,6 @@ import software.amazon.awscdk.RemovalPolicy;
 import software.amazon.awscdk.SecretValue;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
-import software.amazon.awscdk.services.ec2.EbsDeviceVolumeType;
 import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
@@ -20,14 +19,17 @@ import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.ecs.ContainerImage;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedEc2Service;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedTaskImageOptions;
+import software.amazon.awscdk.services.iam.AnyPrincipal;
+import software.amazon.awscdk.services.iam.Effect;
+import software.amazon.awscdk.services.iam.IPrincipal;
+import software.amazon.awscdk.services.iam.PolicyStatement;
 import software.amazon.awscdk.services.iam.Role;
 import software.amazon.awscdk.services.iam.ServicePrincipal;
+import software.amazon.awscdk.services.opensearchservice.AdvancedSecurityOptions;
 import software.amazon.awscdk.services.opensearchservice.CapacityConfig;
 import software.amazon.awscdk.services.opensearchservice.Domain;
-import software.amazon.awscdk.services.opensearchservice.DomainProps;
-import software.amazon.awscdk.services.opensearchservice.EbsOptions;
+import software.amazon.awscdk.services.opensearchservice.EncryptionAtRestOptions;
 import software.amazon.awscdk.services.opensearchservice.EngineVersion;
-import software.amazon.awscdk.services.opensearchservice.ZoneAwarenessConfig;
 import software.amazon.awscdk.services.rds.Credentials;
 import software.amazon.awscdk.services.rds.DatabaseInstance;
 import software.amazon.awscdk.services.rds.DatabaseInstanceEngine;
@@ -36,6 +38,7 @@ import software.amazon.awscdk.services.rds.PostgresInstanceEngineProps;
 import software.amazon.awscdk.services.ssm.StringParameter;
 import software.constructs.Construct;
 
+import java.util.List;
 import java.util.Map;
 
 public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
@@ -85,6 +88,12 @@ public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
         String rabbitEndpoint = StringParameter.valueForStringParameter(
                 this, "general-rabbitmq-host");
 
+        String elasticUser = StringParameter.valueForStringParameter(
+                this, "customer-elastic-user");
+
+        String elasticPassword = StringParameter.valueForStringParameter(
+                this, "customer-elastic-pass");
+
         Role taskRole = Role.Builder.create(this, "TaskRole")
                 .assumedBy(ServicePrincipal.Builder.create("ecs-tasks.amazonaws.com").build())
                 .build();
@@ -109,28 +118,41 @@ public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
         postgres.getConnections().allowFromAnyIpv4(Port.tcp(5432), "Allow connections to the database");
         postgres.grantConnect(taskRole);
 
+        IPrincipal principal = new AnyPrincipal();
 
-//        DomainProps domainProps = DomainProps.builder()
-//                .version(EngineVersion.OPENSEARCH_1_0)
-//                .removalPolicy(RemovalPolicy.DESTROY)
-//                .vpc(vpc)
-//                .zoneAwareness(ZoneAwarenessConfig.builder()
-//                        .enabled(true)
-//                        .build())
-//                .ebs(EbsOptions.builder()
-//                        .volumeSize(10)
-//                        .volumeType(EbsDeviceVolumeType.GP2)
-//                        .build())
-//                .capacity(CapacityConfig.builder()
-//                        // must be an even number since the default az count is 2.
-//                        .dataNodeInstanceType("t2.small.search")
-//                        .dataNodes(1)
-//                        .build())
-//                .build();
-//
-//        Domain elastic = new Domain(this, "Elastic", domainProps);
-//        elastic.getConnections().allowFromAnyIpv4(Port.tcp(443));
+        PolicyStatement policyStatement = PolicyStatement.Builder.create()
+                .actions(List.of("es:*"))
+                .effect(Effect.ALLOW)
+                .principals(List.of(principal))
+                .resources(List.of("arn:aws:es:eu-central-1:644747386257:domain/product-domain/*"))
+                .build();
 
+        AdvancedSecurityOptions advancedSecurityOptions = AdvancedSecurityOptions.builder()
+                .masterUserName(elasticUser)
+                .masterUserPassword(new SecretValue(elasticPassword))
+                .build();
+
+        Domain elastic = Domain.Builder.create(this, "domain")
+                .domainName("product-domain")
+                .version(EngineVersion.ELASTICSEARCH_7_10)
+                .vpc(vpc)
+                .removalPolicy(RemovalPolicy.DESTROY)
+                .vpcSubnets(List.of(SubnetSelection.builder().subnets(List.of(vpc.getPublicSubnets().get(0))).build()))
+                .fineGrainedAccessControl(advancedSecurityOptions)
+                .encryptionAtRest(
+                        EncryptionAtRestOptions.builder().enabled(true).build())
+                .nodeToNodeEncryption(true)
+                .enforceHttps(true)
+                .capacity(CapacityConfig.builder()
+                        .dataNodeInstanceType("t3.small.search")
+                        .dataNodes(2)
+                        .masterNodes(0)
+                        .build())
+                .accessPolicies(List.of(policyStatement))
+                .build();
+
+        elastic.getConnections().allowFromAnyIpv4(Port.tcp(443));
+        elastic.grantReadWrite(taskRole);
 
         Cluster customerCluster = Cluster.Builder.create(this, "ecs-customer-online-store")
                 .vpc(vpc)
@@ -159,8 +181,9 @@ public class AwsInfrastructureOnlineStoreCustomerStack extends Stack {
                                         "CUSTOMER_USER", customerPostgresUserName.getValueAsString(),
                                         "CUSTOMER_DB_URL", "jdbc:postgresql://" + postgres.getDbInstanceEndpointAddress() + ":" + "5432"
                                                 + "/" + customerPostgresDbName.getValueAsString(),
-//                                        "CUSTOMER_ELASTIC_HOST", elastic.getDomainEndpoint(),
-                                        "CUSTOMER_ELASTIC_PORT", "443",
+                                        "CUSTOMER_ELASTIC_HOST", "https://" + elastic.getDomainEndpoint(),
+                                        "CUSTOMER_ELASTIC_USER", elasticUser,
+                                        "CUSTOMER_ELASTIC_PASSWORD", elasticPassword,
                                         "RABBITMQ_HOST", rabbitEndpoint,
                                         "RABBITMQ_USER", rabbitmqNameUser.getValueAsString(),
                                         "CUSTOMER_PASS", dbCustomerPass,
