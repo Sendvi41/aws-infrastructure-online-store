@@ -123,13 +123,13 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
         ));
 
         CfnBroker rabbitMq = CfnBroker.Builder.create(this, "rabbitmq")
-                .brokerName("rabbitmq")
+                .brokerName("rabbitmq-online-store")
                 .deploymentMode("SINGLE_INSTANCE")
                 .engineType("RABBITMQ")
                 .engineVersion("3.8.26")
                 .hostInstanceType("mq.t3.micro")
                 .authenticationStrategy("SIMPLE")
-                .publiclyAccessible(false)
+                .publiclyAccessible(true)
                 .autoMinorVersionUpgrade(true)
                 .users(rabbitUserList)
                 .build();
