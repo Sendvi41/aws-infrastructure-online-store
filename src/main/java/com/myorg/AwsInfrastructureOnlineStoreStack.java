@@ -102,7 +102,7 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
                 .actions(List.of("s3:*"))
                 .effect(Effect.ALLOW)
                 .principals(List.of(principal))
-                .resources(List.of("*"))
+                .resources(List.of(bucket.getBucketArn(), bucket.getBucketArn()+"/*"))
                 .build();
 
         bucket.addToResourcePolicy(policyStatement);
