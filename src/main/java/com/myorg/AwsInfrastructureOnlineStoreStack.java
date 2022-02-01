@@ -21,6 +21,10 @@ import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.ecs.ContainerImage;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedEc2Service;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedTaskImageOptions;
+import software.amazon.awscdk.services.iam.AnyPrincipal;
+import software.amazon.awscdk.services.iam.Effect;
+import software.amazon.awscdk.services.iam.IPrincipal;
+import software.amazon.awscdk.services.iam.PolicyStatement;
 import software.amazon.awscdk.services.iam.Role;
 import software.amazon.awscdk.services.iam.ServicePrincipal;
 import software.amazon.awscdk.services.rds.Credentials;
@@ -29,6 +33,7 @@ import software.amazon.awscdk.services.rds.DatabaseInstanceEngine;
 import software.amazon.awscdk.services.rds.PostgresEngineVersion;
 import software.amazon.awscdk.services.rds.PostgresInstanceEngineProps;
 import software.amazon.awscdk.services.s3.Bucket;
+import software.amazon.awscdk.services.s3.BucketAccessControl;
 import software.amazon.awscdk.services.s3.BucketProps;
 import software.amazon.awscdk.services.ssm.StringParameter;
 import software.amazon.awscdk.services.ssm.StringParameterProps;
@@ -86,9 +91,21 @@ public class AwsInfrastructureOnlineStoreStack extends Stack {
 
         Bucket bucket = new Bucket(this, "imageProductsBucket", BucketProps.builder()
                 .versioned(false)
+                .accessControl(BucketAccessControl.PUBLIC_READ_WRITE)
                 .publicReadAccess(true)
                 .removalPolicy(RemovalPolicy.DESTROY)
                 .build());
+
+        IPrincipal principal = new AnyPrincipal();
+
+        PolicyStatement policyStatement = PolicyStatement.Builder.create()
+                .actions(List.of("s3:*"))
+                .effect(Effect.ALLOW)
+                .principals(List.of(principal))
+                .resources(List.of("*"))
+                .build();
+
+        bucket.addToResourcePolicy(policyStatement);
 
         Role taskRole = Role.Builder.create(this, "TaskRole")
                 .assumedBy(ServicePrincipal.Builder.create("ecs-tasks.amazonaws.com").build())
